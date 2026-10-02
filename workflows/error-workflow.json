@@ -1,0 +1,119 @@
+{
+  "name": "Reliability Lab Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e534a52a-89de-40e8-8a51-858866102217",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const e = $json.execution ?? {};\nconst data = e.data?.resultData?.error ?? $json.error ?? {};\nconst lastNode = e.data?.resultData?.lastNodeExecuted ?? 'unknown';\nconst workflow = e.workflow ?? {};\nreturn [{ json: { timestamp: new Date().toISOString(), request_id: e.data?.resultData?.runData?.Webhook?.[0]?.data?.main?.[0]?.[0]?.json?.body?.request_id ?? null, status: 'failed', error_type: data.name ?? 'workflow_error', message: data.message ?? 'Unexpected workflow failure', last_node: lastNode, workflow_id: workflow.id ?? null, workflow_name: workflow.name ?? null, execution_id: e.id ?? null } }];"
+      },
+      "id": "2666cd97-d975-4538-a262-102435afb58c",
+      "name": "Normalize Error Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO reliability_errors\n(timestamp, request_id, status, error_type, message, last_node, workflow_id, workflow_name, execution_id)\nVALUES ($1::timestamptz, $2, $3, $4, $5, $6, $7, $8, $9);",
+        "options": {
+          "queryReplacement": "={{ [$json.timestamp, $json.request_id, $json.status, $json.error_type, $json.message, $json.last_node, $json.workflow_id, $json.workflow_name, $json.execution_id] }}"
+        }
+      },
+      "id": "c70308ec-35c5-497c-99e8-210f1811cbac",
+      "name": "Persist Error Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "668AOAwI7t8dVoKk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { text: `Workflow failure ${$json.workflow_name ?? ''}: ${$json.message}` } }}",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "id": "431c5294-efc2-4acb-8962-d022a9fc0a32",
+      "name": "Optional Alert Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ],
+      "disabled": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Error Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Error Data": {
+      "main": [
+        [
+          {
+            "node": "Persist Error Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Persist Error Log": {
+      "main": [
+        [
+          {
+            "node": "Optional Alert Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "89270ec6-e5d6-4a2d-9698-e41144f74943",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "SOBYXVezgjJ0ZHxE",
+  "tags": []
+}

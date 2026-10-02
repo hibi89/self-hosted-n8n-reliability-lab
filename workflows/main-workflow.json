@@ -1,0 +1,507 @@
+{
+  "name": "Resilient API Processing Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "reliability-lab/process",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "adf342d8-5374-4d79-89e3-535969f2824e",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1984,
+        272
+      ],
+      "webhookId": "reliability-lab-process"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body ?? $json;\nconst required = ['request_id', 'user_id', 'query'];\nconst missing = required.filter((key) => typeof body[key] !== 'string' || !body[key].trim());\nreturn [{ json: { ...body, valid: missing.length === 0, missing, request_id: body.request_id ?? null, received_at: new Date().toISOString() } }];"
+      },
+      "id": "a36304ed-e28e-4968-81d9-c2af59cf819d",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1760,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c5dd9bb3-a2b6-447c-8b23-fff9915e5772",
+      "name": "Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1536,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'invalid', request_id: $json.request_id, error_type: 'validation_error', message: 'Missing or empty required fields', missing: $json.missing } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "68b8e817-156a-4788-9d02-093849627707",
+      "name": "Invalid Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -1328,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "CREATE TABLE IF NOT EXISTS reliability_requests (request_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, query_text TEXT NOT NULL, status TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), result JSONB, error_type TEXT, error_message TEXT);\nINSERT INTO reliability_requests (request_id, user_id, query_text, status) VALUES ($1, $2, $3, 'processing') ON CONFLICT (request_id) DO NOTHING RETURNING request_id;",
+        "options": {
+          "queryReplacement": "={{ [$json.request_id, $json.user_id, $json.query] }}"
+        }
+      },
+      "id": "c92a3cdd-3708-4cb7-94fa-991f87cb1a2f",
+      "name": "Claim Idempotency Key",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1328,
+        192
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "668AOAwI7t8dVoKk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.request_id !== undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "10e90a5d-aed8-4e3c-b193-83a3d46d5d13",
+      "name": "Key Claimed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1104,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'duplicate', request_id: $('Validate Input').first().json.request_id } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "e1a18a68-b91a-45af-a991-d328a0888843",
+      "name": "Duplicate Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1
+      },
+      "id": "610ac1af-5dc8-4bc7-b920-044d11a5b7c3",
+      "name": "Rate Limit Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -880,
+        80
+      ],
+      "webhookId": "65013e35-31d1-446a-abad-f30d062bbd1c"
+    },
+    {
+      "parameters": {
+        "url": "https://jsonplaceholder.typicode.com/posts/1",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "timeout": 5000
+        }
+      },
+      "id": "d9500c93-928e-4047-8afe-3b4af2dec89b",
+      "name": "External API (3 attempts, 5s timeout)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -656,
+        80
+      ],
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\n\nconst hasTransportError = !!response.error;\nconst statusCode = response.statusCode ?? (hasTransportError ? 0 : 200);\n\nconst failed =\n  hasTransportError ||\n  statusCode < 200 ||\n  statusCode >= 300;\n\nconst errorMessage = hasTransportError\n  ? (response.error.message ?? response.error.code ?? 'External API request failed')\n  : failed\n    ? `External API returned HTTP ${statusCode}`\n    : null;\n\nreturn [{\n  json: {\n    ...$('Validate Input').first().json,\n    api_status: statusCode,\n    api_failed: failed,\n    result: response.body ?? response,\n    error_type: failed ? 'external_api_failure' : null,\n    error_message: errorMessage,\n    completed_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "7fb48510-c0fa-488c-b26b-d6b35ba985f2",
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.api_failed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d0191372-19d2-4d10-84bf-0ddd8c641c0f",
+      "name": "API Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -224,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reliability_requests SET status = 'failed', error_type = $2, error_message = $3, updated_at = NOW() WHERE request_id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.request_id, $json.error_type, $json.error_message] }}"
+        }
+      },
+      "id": "cbffeb8e-24b3-44db-866b-55faf2550668",
+      "name": "Log API Failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        240
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "668AOAwI7t8dVoKk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ALERT_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { text: `Reliability lab failed request ${$('Normalize Result').first().json.request_id}: ${$('Normalize Result').first().json.error_message}` } }}",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "id": "0ec6a631-95bd-4ffc-a2b9-9c56a5b41dd8",
+      "name": "Optional Alert Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        224,
+        240
+      ],
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'error', request_id: $('Normalize Result').first().json.request_id, error_type: $('Normalize Result').first().json.error_type, message: $('Normalize Result').first().json.error_message } }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "id": "2dadefac-2360-465f-9b27-0ba2fb5f660c",
+      "name": "Failure Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        448,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE reliability_requests SET status = 'succeeded', result = $2::jsonb, updated_at = NOW() WHERE request_id = $1;",
+        "options": {
+          "queryReplacement": "={{ [$json.request_id, JSON.stringify($json.result)] }}"
+        }
+      },
+      "id": "45a8e4bf-67ff-4dd8-a099-a96e56b78401",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "668AOAwI7t8dVoKk",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { status: 'success', request_id: $('Normalize Result').first().json.request_id, result: $('Normalize Result').first().json.result } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "e41e14b5-73ca-463b-86b6-42e9fd8a9722",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid?": {
+      "main": [
+        [
+          {
+            "node": "Claim Idempotency Key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim Idempotency Key": {
+      "main": [
+        [
+          {
+            "node": "Key Claimed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Key Claimed?": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Duplicate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit Wait": {
+      "main": [
+        [
+          {
+            "node": "External API (3 attempts, 5s timeout)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "External API (3 attempts, 5s timeout)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Result": {
+      "main": [
+        [
+          {
+            "node": "API Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API Failed?": {
+      "main": [
+        [
+          {
+            "node": "Log API Failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log API Failure": {
+      "main": [
+        [
+          {
+            "node": "Optional Alert Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Optional Alert Webhook": {
+      "main": [
+        [
+          {
+            "node": "Failure Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Success": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "errorWorkflow": "SOBYXVezgjJ0ZHxE",
+    "executionOrder": "v1"
+  },
+  "versionId": "73013004-2609-40f3-8da1-0a57b648bf15",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "6brmRiixAfiqhXW3",
+  "tags": []
+}
