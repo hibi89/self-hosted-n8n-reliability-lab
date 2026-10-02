@@ -99,8 +99,8 @@ See [docs/test-scenarios.md](docs/test-scenarios.md) for the test matrix and sco
 ![PostgreSQL request log query output](docs/screenshots/06-postgres-logs.png)
 *PostgreSQL query output with successful and failed request records.*
 
-![Error log terminal capture](docs/screenshots/07-error-log.png)
-*Terminal capture associated with the error-log check; no query output is visible in this image.*
+![PostgreSQL reliability_errors record](docs/screenshots/07-error-log.png)
+*PostgreSQL reliability_errors record showing the forced workflow failure captured by the Error Workflow.*
 
 ## Troubleshooting
 
