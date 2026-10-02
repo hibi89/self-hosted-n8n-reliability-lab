@@ -75,6 +75,33 @@ The following behavior was exercised against the local Docker Compose stack runn
 
 See [docs/test-scenarios.md](docs/test-scenarios.md) for the test matrix and scope. The optional outbound alert webhook was not part of the verified results.
 
+## Screenshots / Evidence
+
+### Workflow and deployment
+
+![Main workflow canvas showing the webhook, validation, idempotency, API, and result branches](docs/screenshots/01-main-workflow.png)
+*Main workflow canvas with validation, request claim, API processing, and response paths.*
+
+![Docker Desktop showing the n8n and PostgreSQL services](docs/screenshots/02-docker-runtime.png)
+*Docker Desktop view of the n8n and PostgreSQL services.*
+
+![HTTP Request node retry settings](docs/screenshots/04-retry-settings.png)
+*Retry On Fail is enabled with Max. Tries 3 and a 1,000 ms interval.*
+
+![Separate n8n Error Workflow](docs/screenshots/05-error-workflow.png)
+*Error Trigger, error normalization, PostgreSQL logging, and the disabled optional alert node.*
+
+### Runtime evidence
+
+![Successful Production Webhook request](docs/screenshots/03-success-request.png)
+*Production Webhook response showing a successful request.*
+
+![PostgreSQL request log query output](docs/screenshots/06-postgres-logs.png)
+*PostgreSQL query output with successful and failed request records.*
+
+![Error log terminal capture](docs/screenshots/07-error-log.png)
+*Terminal capture associated with the error-log check; no query output is visible in this image.*
+
 ## Troubleshooting
 
 ### Transport error was treated as success
